@@ -1,14 +1,16 @@
 module game.vulkan.context;
 
+import vulkan_xlib;
+
 import erupted;
 
 import gl3n.linalg;
 
 struct VulkanContext {
+	DispatchDevice device;
 	VkInstance instance;
 	const(VkAllocationCallbacks)* pAllocator;
 	VkPhysicalDevice physicalDevice;
-	DispatchDevice device;
 	VkSwapchainKHR swapChain;
 	VkFormat swapChainImageFormat;
 	VkExtent2D swapChainExtent;

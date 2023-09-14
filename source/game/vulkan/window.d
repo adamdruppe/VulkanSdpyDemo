@@ -1,8 +1,9 @@
 module game.vulkan.window;
 
 import erupted;
+import arsd.simpledisplay;
+import vulkan_xlib;
 
-import glfw3d;
 import gl3n.linalg;
 import gl3n.math;
 
@@ -51,51 +52,49 @@ int wrapRate(alias fn)(VkPhysicalDevice device, VkSurfaceKHR surface) {
 	return fn(surface, device, props, features);
 }
 
-class VulkanWindow : Window {
+class VulkanWindow : SimpleWindow {
 	VulkanContext context;
 	alias context this;
 
 	this(int width, int height, string name) {
-		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-		glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
-		super(width, height, name);
+		super(width, height, name, Resizability.allowResizing);
 	}
 
-	override void destroy() {
+	override void dispose() {
 		device.DeviceWaitIdle();
 
 		if (swapChain)
 			destroySwapChain();
 
 		if (descriptorPool)
-			device.DestroyDescriptorPool(descriptorPool, pAllocator);
+			device.DestroyDescriptorPool(descriptorPool);
 
 		if (descriptorSetLayout)
-			device.DestroyDescriptorSetLayout(descriptorSetLayout, pAllocator);
+			device.DestroyDescriptorSetLayout(descriptorSetLayout);
 
 		if (uniformBuffer)
-			device.DestroyBuffer(uniformBuffer, pAllocator);
+			device.DestroyBuffer(uniformBuffer);
 
 		if (uniformBufferMemory)
-			device.FreeMemory(uniformBufferMemory, pAllocator);
+			device.FreeMemory(uniformBufferMemory);
 
 		if (meshBuffer)
-			device.DestroyBuffer(meshBuffer, pAllocator);
+			device.DestroyBuffer(meshBuffer);
 
 		if (meshBufferMemory)
-			device.FreeMemory(meshBufferMemory, pAllocator);
+			device.FreeMemory(meshBufferMemory);
 
 		if (renderFinishedSemaphore)
-			device.DestroySemaphore(renderFinishedSemaphore, pAllocator);
+			device.DestroySemaphore(renderFinishedSemaphore);
 
 		if (imageAvailableSemaphore)
-			device.DestroySemaphore(imageAvailableSemaphore, pAllocator);
+			device.DestroySemaphore(imageAvailableSemaphore);
 
 		if (commandPool)
-			device.DestroyCommandPool(commandPool, pAllocator);
+			device.DestroyCommandPool(commandPool);
 
 		if (device != DispatchDevice.init)
-			device.DestroyDevice(pAllocator);
+			device.DestroyDevice();
 
 		if (surface)
 			vkDestroySurfaceKHR(instance, surface, pAllocator);
@@ -103,32 +102,50 @@ class VulkanWindow : Window {
 		if (instance)
 			vkDestroyInstance(instance, pAllocator);
 
-		super.destroy();
+		super.dispose();
 	}
 
 	void destroySwapChain() {
 		foreach (ref fb; swapChainFramebuffers)
-			device.DestroyFramebuffer(fb, pAllocator);
+			device.DestroyFramebuffer(fb);
 
 		device.FreeCommandBuffers(commandPool, cast(uint) commandBuffers.length, commandBuffers.ptr);
 
 		if (graphicsPipeline)
-			device.DestroyPipeline(graphicsPipeline, pAllocator);
+			device.DestroyPipeline(graphicsPipeline);
 
 		if (pipelineLayout)
-			device.DestroyPipelineLayout(pipelineLayout, pAllocator);
+			device.DestroyPipelineLayout(pipelineLayout);
 
 		if (renderPass)
-			device.DestroyRenderPass(renderPass, pAllocator);
+			device.DestroyRenderPass(renderPass);
 
 		foreach (ref view; swapChainImageViews)
-			device.DestroyImageView(view, pAllocator);
+			device.DestroyImageView(view);
 
 		if (swapChain)
 			device.vkDestroySwapchainKHR(device.vkDevice, swapChain, pAllocator);
 	}
 
 	void createSurface() {
+		assert(instance);
+		version(Windows) {
+			VkWin32SurfaceCreateInfoKHR createInfo;
+			createInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
+			createInfo.hwnd = this.hwnd;
+			import core.sys.windows.windows;
+			createInfo.hinstance = GetModuleHandle(null);
+			if (vkCreateWin32SurfaceKHR(instance, &createInfo, null, &surface) != VK_SUCCESS)
+				throw new Exception("surface creation");
+		} else static if(UsingSimpledisplayX11) {
+			VkXlibSurfaceCreateInfoKHR createInfo;
+			createInfo.window = this.window;
+			createInfo.dpy = XDisplayConnection.get;
+			if (vkCreateXlibSurfaceKHR(instance, &createInfo, pAllocator, &surface) != VK_SUCCESS)
+				throw new Exception("surface creation");
+
+		}
+		version(none)
 		glfwCreateWindowSurface(instance, ptr, pAllocator, &surface).enforceVK(
 				"glfwCreateWindowSurface");
 	}
@@ -138,8 +155,13 @@ class VulkanWindow : Window {
 		assert(pCreateInfo);
 	}
 	body {
-		vkCreateInstance(pCreateInfo, pAllocator, &instance).enforceVK("vkCreateInstance");
-		loadInstanceLevelFunctions(instance);
+		vkCreateInstance(pCreateInfo, null, &instance).enforceVK("vkCreateInstance");
+		loadInstanceLevelFunctionsExt(instance);
+
+		assert(instance);
+
+			uint numPhysDevices;
+		        enforceVK(vkEnumeratePhysicalDevices(instance, &numPhysDevices, null)); 
 	}
 
 	void selectPhysicalDevice(alias rateDevice)() {
@@ -227,8 +249,7 @@ class VulkanWindow : Window {
 		VkSurfaceFormatKHR surfaceFormat = swapChainSupport.formats.chooseOptimalSwapSurfaceFormat(
 				VK_FORMAT_B8G8R8A8_UNORM);
 		VkPresentModeKHR presentMode = swapChainSupport.presentModes.chooseSwapPresentMode;
-		auto size = getSize();
-		VkExtent2D extent = swapChainSupport.capabilities.chooseSwapExtent(size.width, size.height);
+		VkExtent2D extent = swapChainSupport.capabilities.chooseSwapExtent(this.width, this.height);
 
 		uint imageCount = swapChainSupport.capabilities.minImageCount + 1;
 		if (swapChainSupport.capabilities.maxImageCount > 0
@@ -295,7 +316,7 @@ class VulkanWindow : Window {
 			createInfo.subresourceRange.baseArrayLayer = 0;
 			createInfo.subresourceRange.layerCount = 1;
 
-			device.CreateImageView(&createInfo, pAllocator,
+			device.CreateImageView(&createInfo,
 					&swapChainImageViews[i]).enforceVK("vkCreateImageView #" ~ i.to!string);
 		}
 	}
@@ -338,7 +359,7 @@ class VulkanWindow : Window {
 		renderPassInfo.dependencyCount = 1;
 		renderPassInfo.pDependencies = &subpassDependency;
 
-		device.CreateRenderPass(&renderPassInfo, pAllocator, &renderPass)
+		device.CreateRenderPass(&renderPassInfo, &renderPass)
 			.enforceVK("vkCreateRenderPass");
 	}
 
@@ -354,18 +375,18 @@ class VulkanWindow : Window {
 		layoutInfo.bindingCount = 1;
 		layoutInfo.pBindings = &uniformsLayoutBinding;
 
-		context.device.CreateDescriptorSetLayout(&layoutInfo, pAllocator, &descriptorSetLayout);
+		context.device.CreateDescriptorSetLayout(&layoutInfo, &descriptorSetLayout);
 
 	}
 
 	void createGraphicsPipeline() {
 		auto vertShaderModule = context.createShaderModule("shaders/vert.spv");
 		scope (exit)
-			device.DestroyShaderModule(vertShaderModule, pAllocator);
+			device.DestroyShaderModule(vertShaderModule);
 
 		auto fragShaderModule = context.createShaderModule("shaders/frag.spv");
 		scope (exit)
-			device.DestroyShaderModule(fragShaderModule, pAllocator);
+			device.DestroyShaderModule(fragShaderModule);
 
 		VkPipelineShaderStageCreateInfo vertShaderStageInfo;
 		vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
@@ -462,7 +483,7 @@ class VulkanWindow : Window {
 		pipelineLayoutInfo.pushConstantRangeCount = 0;
 		pipelineLayoutInfo.pPushConstantRanges = null;
 
-		device.CreatePipelineLayout(&pipelineLayoutInfo, pAllocator,
+		device.CreatePipelineLayout(&pipelineLayoutInfo,
 				&pipelineLayout).enforceVK("vkCreatePipelineLayout");
 
 		VkGraphicsPipelineCreateInfo pipelineInfo;
@@ -482,7 +503,7 @@ class VulkanWindow : Window {
 		pipelineInfo.basePipelineHandle = null;
 		pipelineInfo.basePipelineIndex = -1;
 
-		device.CreateGraphicsPipelines(null, 1, &pipelineInfo, pAllocator,
+		device.CreateGraphicsPipelines(null, 1, &pipelineInfo,
 				&graphicsPipeline).enforceVK("vkCreateGraphicsPipelines");
 	}
 
@@ -498,7 +519,7 @@ class VulkanWindow : Window {
 			framebufferInfo.height = swapChainExtent.height;
 			framebufferInfo.layers = 1;
 
-			device.CreateFramebuffer(&framebufferInfo, pAllocator,
+			device.CreateFramebuffer(&framebufferInfo,
 					&swapChainFramebuffers[i]).enforceVK("vkCreateFramebuffer #" ~ i.to!string);
 		}
 	}
@@ -524,8 +545,8 @@ class VulkanWindow : Window {
 
 		copyBufferSync(context, stagingBuffer, meshBuffer, meshBufferSize);
 
-		device.DestroyBuffer(stagingBuffer, pAllocator);
-		device.FreeMemory(stagingBufferMemory, pAllocator);
+		device.DestroyBuffer(stagingBuffer);
+		device.FreeMemory(stagingBufferMemory);
 
 		VkDeviceSize uniformBufferSize = UniformBufferObject.sizeof;
 		createBuffer(context, uniformBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
@@ -543,7 +564,7 @@ class VulkanWindow : Window {
 		poolInfo.pPoolSizes = &poolSize;
 		poolInfo.maxSets = 1;
 
-		device.CreateDescriptorPool(&poolInfo, pAllocator, &descriptorPool)
+		device.CreateDescriptorPool(&poolInfo, &descriptorPool)
 			.enforceVK("vkCreateDescriptorPool");
 	}
 
@@ -578,7 +599,7 @@ class VulkanWindow : Window {
 		VkCommandPoolCreateInfo poolInfo;
 		poolInfo.queueFamilyIndex = graphicsIndex;
 		poolInfo.flags = 0;
-		device.CreateCommandPool(&poolInfo, pAllocator, &commandPool)
+		device.CreateCommandPool(&poolInfo, &commandPool)
 			.enforceVK("vkCreateCommandPool");
 	}
 
@@ -637,9 +658,9 @@ class VulkanWindow : Window {
 
 	void createSemaphores() {
 		VkSemaphoreCreateInfo semaphoreInfo;
-		device.CreateSemaphore(&semaphoreInfo, pAllocator, &imageAvailableSemaphore)
+		device.CreateSemaphore(&semaphoreInfo, &imageAvailableSemaphore)
 			.enforceVK("vkCreateSemaphore imageAvailableSemaphore");
-		device.CreateSemaphore(&semaphoreInfo, pAllocator, &renderFinishedSemaphore)
+		device.CreateSemaphore(&semaphoreInfo, &renderFinishedSemaphore)
 			.enforceVK("vkCreateSemaphore renderFinishedSemaphore");
 	}
 

@@ -3,8 +3,7 @@ import std.math;
 import std.string;
 
 import erupted;
-
-import glfw3d;
+import erupted.vulkan_lib_loader;
 
 import game.vulkan.wrap;
 import game.vulkan.window;
@@ -12,16 +11,14 @@ import game.vulkan.window;
 static string[] deviceExtensions = [VK_KHR_SWAPCHAIN_EXTENSION_NAME];
 
 void main() {
-	DerelictErupted.load();
-
-	glfw3dInit();
-	scope (exit)
-		glfw3dTerminate();
+	if(!loadGlobalLevelFunctions())
+		throw new Exception("fail to load");
 
 	VulkanWindow w = new VulkanWindow(853, 600, "WhyLinux");
 
-	w.setUserPointer(cast(void*) cast(Window) w);
-	w.setSizeCallback(&onWindowResized);
+	w.windowResized = (int, int) {
+		w.recreateSwapChain();
+	};
 
 	{
 		ApplicationInfo appInfo;
@@ -73,23 +70,9 @@ void main() {
 
 	stderr.writeln("Successfully created vulkan context");
 
-	while (!w.shouldClose()) {
-		glfwPollEvents();
+	w.eventLoop(1000 / 60, {
 		w.drawFrame();
-	}
-}
-
-extern (C) nothrow void onWindowResized(GLFWwindow* window, int width, int height) {
-	if (width == 0 || height == 0)
-		return;
-
-	auto w = cast(VulkanWindow) glfwGetWindowUserPointer(window);
-	try {
-		w.recreateSwapChain();
-	}
-	catch (Exception e) {
-		assert(false);
-	}
+	});
 }
 
 int rateDevice(VkSurfaceKHR surface, VkPhysicalDevice device,

@@ -86,11 +86,15 @@ struct ApplicationInfo {
 }
 
 void fillRequiredInstanceExtensions(ref VkInstanceCreateInfo info, bool validate = true) {
-	import glfw3d : glfwGetRequiredInstanceExtensions;
+	// import glfw3d : glfwGetRequiredInstanceExtensions;
 	import std.stdio : stderr;
 	import core.stdc.string : strcmp;
 
-	info.ppEnabledExtensionNames = glfwGetRequiredInstanceExtensions(&info.enabledExtensionCount);
+	// info.ppEnabledExtensionNames = glfwGetRequiredInstanceExtensions(&info.enabledExtensionCount);
+	import erupted;
+	static immutable(char*[]) extensions = ["VK_KHR_surface", "VK_KHR_xlib_surface"];
+	info.ppEnabledExtensionNames = extensions.ptr;
+	info.enabledExtensionCount = extensions.length;
 
 	if (validate) {
 		uint count;
@@ -137,6 +141,18 @@ body {
 				break;
 			case VkQueueFlagBits.VK_QUEUE_TRANSFER_BIT:
 				code ~= `"transfer",`;
+				break;
+			case VkQueueFlagBits.VK_QUEUE_PROTECTED_BIT:
+				code ~= `"protected_",`;
+				break;
+			case VkQueueFlagBits.VK_QUEUE_VIDEO_DECODE_BIT_KHR:
+				code ~= `"videoDecode",`;
+				break;
+			case VkQueueFlagBits.VK_QUEUE_VIDEO_ENCODE_BIT_KHR:
+				code ~= `"videoEncode",`;
+				break;
+			case VkQueueFlagBits.VK_QUEUE_OPTICAL_FLOW_BIT_NV:
+				code ~= `"opticalFlow",`;
 				break;
 			case VkQueueFlagBits.VK_QUEUE_FLAG_BITS_MAX_ENUM:
 				assert(false,
@@ -278,7 +294,7 @@ void createBuffer(ref VulkanContext context, VkDeviceSize size, VkBufferUsageFla
 	bufferInfo.usage = usage;
 	bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-	context.device.CreateBuffer(&bufferInfo, context.pAllocator, &buffer)
+	context.device.CreateBuffer(&bufferInfo, &buffer)
 		.enforceVK("vkCreateBuffer");
 
 	VkMemoryRequirements memRequirements;
@@ -289,7 +305,7 @@ void createBuffer(ref VulkanContext context, VkDeviceSize size, VkBufferUsageFla
 	allocInfo.memoryTypeIndex = findMemoryType(context.physicalDevice,
 			memRequirements.memoryTypeBits, properties);
 
-	context.device.AllocateMemory(&allocInfo, context.pAllocator,
+	context.device.AllocateMemory(&allocInfo,
 			&bufferMemory).enforceVK("vkAllocateMemory");
 
 	context.device.BindBufferMemory(buffer, bufferMemory, 0);

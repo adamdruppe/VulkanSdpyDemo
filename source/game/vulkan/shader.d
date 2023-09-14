@@ -14,7 +14,7 @@ VkShaderModule createShaderModule(ref VulkanContext context, in ubyte[] code, in
 
 	VkShaderModule shaderModule;
 
-	context.device.CreateShaderModule(&createInfo, context.pAllocator, &shaderModule).enforceVK(
+	context.device.CreateShaderModule(&createInfo, &shaderModule).enforceVK(
 			"vkCreateShaderModule with file " ~ origin);
 
 	return shaderModule;
